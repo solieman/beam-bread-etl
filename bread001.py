@@ -41,6 +41,10 @@ def run(argv=None):
     def get_maximum_number(one_item):
         # Getting the Maximum transactions for an item
         return [(str(one_item[0]),max(map(int, one_item[1])))]
+
+    def get_minimum_number(one_item):
+        # Getting the Minimum transactions for an item
+        return [(str(one_item[0]),min(map(int, one_item[1])))]
     
     def get_total_number(one_item):
         # get the total transactions for one item
@@ -48,7 +52,7 @@ def run(argv=None):
     
     def get_unique_items(one_day):
         # get the total transactions for one item
-        return [(str(one_day[0]),set(one_day[1]))]
+        return [(str(one_day[0]),one_day[1])]
 
 
 
@@ -56,32 +60,52 @@ def run(argv=None):
             | 'Read My File' >> ReadFromText('BreadBasket_DMS.csv')
             | 'Parse CSV to Dict' >> beam.ParDo(parse_item))
 
-    # Getting the maximum number of transactions for each item
-    maximumTransactions = (csvData
+    pairTheItemAndTransactions = (csvData
             | 'pair with transaction' >> beam.Map(lambda record: (record.item, record.transaction))
-            | 'Group Transactions By Key' >> beam.GroupByKey()
-            | 'Return the Maximum transactions 1' >> beam.ParDo(get_maximum_number)
-            | 'Save maximum to file' >> WriteToText('transactions-maximum','.txt')
-            | 'JustPrintIt 1' >> beam.ParDo(printIt))
+            | 'Group Transactions By Key' >> beam.GroupByKey())
+
+    # Getting the maximum number of transactions for each item
+    maximumTransactions = (pairTheItemAndTransactions
+            | 'Return the Maximum transactions' >> beam.ParDo(get_maximum_number))
+            # | 'Save maximum to file' >> WriteToText('output/transactions-maximum','.txt')
+            # | 'JustPrintIt 1' >> beam.ParDo(printIt))
+    
+    # Getting the minimum number of transactions for each item
+    minimumTransactions = (pairTheItemAndTransactions
+            | 'Return the Minimum transactions' >> beam.ParDo(get_minimum_number))
+            # | 'Save maximum to file' >> WriteToText('output/transactions-maximum','.txt')
+            # | 'JustPrintIt 1' >> beam.ParDo(printIt))
     
     # Getting the total number of transactions for each item
     transactionsCount = (csvData
             | 'pair with one' >> beam.Map(lambda record: (record.item, 1))
             | 'Group Repeate By Key' >> beam.GroupByKey()
-            | 'Return the total of the transactions' >> beam.ParDo(get_total_number)
-            | 'Save total to file' >> WriteToText('transactions-count','.txt')
-            | 'JustPrintIt' >> beam.ParDo(printIt))
+            | 'Return the total of the transactions' >> beam.ParDo(get_total_number))
+            # | 'Save total to file' >> WriteToText('output/transactions-count','.txt')
+            # | 'JustPrintIt' >> beam.ParDo(printIt))
 
+    # Compine the two previouse operations
+    compineCountAndMaximum = ({'count': transactionsCount, 'max': maximumTransactions, 'min': minimumTransactions}
+        | beam.CoGroupByKey()
+        | 'Save merged to file' >> WriteToText('output/transactions-count-maximum','.txt')
+        | beam.ParDo(printIt))
+
+    # Flatten then Group the two previouse operations
+    flattenCountAndMaximum = ((transactionsCount, maximumTransactions, minimumTransactions)
+        | beam.Flatten()
+        | beam.GroupByKey()
+        | 'Print Flattened data' >> beam.ParDo(printIt))
+    
     def get_daily_data(one_day):
         # get the total transactions for one item
-        return [(str(one_day[0]),set(one_day[1]))]
+        return [(str(one_day[0]),one_day[1])]
 
     # Getting One Day data
     dayData = (csvData
             | 'pair date with data' >> beam.Map(lambda record: (record.date, record.item))
             | 'Group Repeate By Date' >> beam.GroupByKey()
             | 'get total' >> beam.ParDo(get_unique_items)
-            | 'Save day to file' >> WriteToText('day-list','.txt')
+            | 'Save day to file' >> WriteToText('output/day-list','.txt')
             | 'JustPrintIt - day' >> beam.ParDo(printIt))
 
     result = p.run()
