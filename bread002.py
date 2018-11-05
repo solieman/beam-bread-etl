@@ -1,5 +1,3 @@
-# coding: utf-8
-# Python
 
 from __future__ import absolute_import
 
@@ -16,6 +14,8 @@ from apache_beam.io import ReadFromText
 from apache_beam.io import WriteToText
 
 
+import requests
+
 class MyOptions(PipelineOptions):
 
   @classmethod
@@ -31,7 +31,6 @@ class MyOptions(PipelineOptions):
 class Order(object):
     def __init__(self, date, time, transaction, item):
         self.date = date
-        self.time = time
         self.transaction = transaction
         self.item = item
 
@@ -55,12 +54,8 @@ class AddKeyToDict(beam.DoFn):
 
 # TO-USE: records | beam.ParDo(AddKeyToDict())
 
-
-
-
 #####################################
 def run(argv=None):
-    
     
     parser = argparse.ArgumentParser()
     parser.add_argument('--input',
@@ -104,113 +99,40 @@ def run(argv=None):
         # get the total transactions for one item
         return [(str(one_day[0]),one_day[1])]
 
+    def get_api_data(data):
+        # print data
+        data_every_sec = requests.get("https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=BTC,USD,EUR").json()
+        print data_every_sec
+        return [True]
+
     
     ###############################
     # Read data from PubSub, decode JSON
     # records = (p 
     #             | beam.io.ReadStringsFromPubSub(..)
     #             | beam.Map(lambda e: json.loads(e)))
-
     ###############################
 
     # Load data from text file
     csvData = (p
-            # We use a csv file with no header
-            # | 'Read My File' >> ReadFromText('BreadBasket_DMS.csv')
             | 'Read My File' >> ReadFromText(known_args.input)
             | 'Parse CSV to Dict' >> beam.ParDo(parse_item))
 
-    # Pair each item with the number of transactions 
-    pairTheItemAndTransactions = (csvData
-            # Map the item and the number of transaction in every record
-            | 'pair with transaction' >> beam.Map(lambda record: (record.item, record.transaction))
-            # Group all the transaction of specific item
-            | 'Group Transactions By Key' >> beam.GroupByKey())
-
-    # Getting the maximum number of transactions for each item
-    maximumTransactions = (pairTheItemAndTransactions
-            | 'Return the Maximum transactions' >> beam.ParDo(get_maximum_number))
-            # | 'Save maximum to file' >> WriteToText('output/transactions-maximum','.txt')
-            # | 'JustPrintIt 1' >> beam.ParDo(printIt))
-    
-    # Getting the minimum number of transactions for each item
-    minimumTransactions = (pairTheItemAndTransactions
-            | 'Return the Minimum transactions' >> beam.ParDo(get_minimum_number))
-            # | 'Save minimum to file' >> WriteToText('output/transactions-maximum','.txt')
-            # | 'JustPrintIt 1' >> beam.ParDo(printIt))
-    
-    # Getting the total number of transactions for each item
-    transactionsCount = (csvData
-            | 'pair with one' >> beam.Map(lambda record: (record.item, 1))
-            | 'Group Repeate By Key' >> beam.GroupByKey()
-            | 'Return the total of the transactions' >> beam.ParDo(get_total_number))
-            # | 'Save total to file' >> WriteToText('output/transactions-count','.txt')
-            # | 'JustPrintIt' >> beam.ParDo(printIt))
-
-    # Compine the two previouse operations
-    compineCountAndMaximum = ({'count': transactionsCount, 'max': maximumTransactions, 'min': minimumTransactions}
-        | beam.CoGroupByKey()
-        | 'Save merged to file' >> WriteToText('output/transactions-count-maximum','.txt')
-        | beam.ParDo(printIt))
-
-    # Flatten then Group the two previouse operations
-    # flattenCountAndMaximum = ((transactionsCount, maximumTransactions, minimumTransactions)
-    #     | beam.Flatten()
-    #     | beam.GroupByKey()
-    #     | 'Print Flattened data' >> beam.ParDo(printIt))
-    
     def get_daily_data(one_day):
         # get the total transactions for one item
         return [(str(one_day[0]),one_day[1])]
 
     # Getting One Day data
     dayData = (csvData
-            | 'pair date with data' >> beam.Map(lambda record: (record.date, record.item))
+            | 'pair date with data' >> beam.Map(lambda record: (record.date, [record.item,record.transaction]))
             | 'Group Repeate By Date' >> beam.GroupByKey()
-            | 'get total' >> beam.ParDo(get_unique_items)
-            | 'Save day to file' >> WriteToText('output/day-list','.txt')
+            | 'get data' >> beam.ParDo(get_api_data)
+            # | 'Save day to file' >> WriteToText(known_args.output)
             | 'JustPrintIt - day' >> beam.ParDo(printIt))
-
-    def printer(day_data):
-        print day_data
-        # WriteToText(day_data[0],'.txt')
-    
-    # Every day data
-    # everyDayData = (csvData
-    #         | 'pair every day with its data' >> beam.Map(lambda record: (record.date, [record.item, record.transaction]))
-    #         | 'Group By Date' >> beam.GroupByKey())
-
-    # everydayPrinter = (everyDayData
-            # | '10' >> beam.Map(lambda record: (record[1]))
-            # | '11' >> beam.Map(lambda record: (record[0],record[1]))
-            # | '12' >> beam.ParDo(printer))
-            # | '2' >> beam.Map(lambda record: (record.item, record.transaction))
-            # | '3' >> beam.GroupByKey())
-            # | 'print day by day' >> beam.ParDo(printer)
-    #         | 'Save day to file' >> WriteToText('output/day-list','.txt')
-            # | 'JustPrintIt - every day' >> beam.ParDo(printIt))
-
-
-    # Specific Day Data
-    specificDayData = (csvData
-            | 'FilterOneDayData' >> beam.Filter(lambda elem: elem.date == '2016-10-30')
-            | 'pair every day with its data 12' >> beam.Map(lambda record: (record.date, [record.item, record.transaction]))
-            | 'Group By Date 12' >> beam.GroupByKey())
-
-    specificDayMaxMin = (specificDayData
-            | 'day data' >> beam.Map(lambda data: data[1])
-            # | 'day data 1' >> beam.Map(lambda dataItem: (dataItem[0], dataItem[1]))
-            # | 'group day data' >> beam.GroupByKey()
-            | 'just print' >> beam.ParDo(printIt))
-
-    # everydayPrinter = (specificDayData
-    #         | '12' >> beam.ParDo(printer))
-
 
     result = p.run()
 
     result.wait_until_finish()
-
 
 if __name__ == '__main__':
     # Showing the logs
